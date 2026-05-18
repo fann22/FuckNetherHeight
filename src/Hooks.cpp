@@ -4,10 +4,9 @@
 #include "mc/deps/core/math/Vec3.h"
 #include "mc/deps/core/utility/BinaryStream.h"
 #include "mc/legacy/ActorRuntimeID.h"
-#include "mc/network//LoopbackPacketSender.h"
+#include "mc/network/LoopbackPacketSender.h"
 #include "mc/network/LoopbackPacketSender.h"
 #include "mc/network/MinecraftPacketIds.h"
-#include "mc/network/NetworkBlockPosition.h"
 #include "mc/network/NetworkIdentifierWithSubId.h"
 #include "mc/network/ServerNetworkHandler.h"
 #include "mc/network/packet/AddVolumeEntityPacket.h"
@@ -31,16 +30,26 @@
 #include "mc/server/ServerPlayer.h"
 #include "mc/util/MolangVariable.h"
 #include "mc/util/VarIntDataOutput.h"
+#include "mc/world/level/BlockPos.h"
 #include "mc/world/level/ChangeDimensionRequest.h"
 #include "mc/world/level/Level.h"
 #include "mc/world/level/LoadingScreenIdManager.h"
 #include "mc/world/level/SpawnSettings.h"
+#include "mc/world/level/biome/glue/BiomeJsonDocumentGlue.h"
+#include "mc/world/level/biome/glue/BiomeJsonDocumentGlueResolvedBiomeData.h"
 #include "mc/world/level/dimension/Dimension.h"
 #include "mc/world/level/dimension/DimensionArguments.h"
 #include "mc/world/level/dimension/VanillaDimensions.h"
-
+#include "mc/server/config/server_configuration/ServerConfigurationJoinInfo.h"
+#include "mc/events/event_data/ServerTelemetryData.h"
+#include "mc/deps/core/resource/ContentIdentity.h"
+#include "mc/world/actor/player/PlayerMovementSettings.h"
+#include "mc/platform/UUID.h"
+#include "mc/world/level/block/definition/BlockDefinitionGroup.h"
 
 namespace {
+using BiomeDataMap = std::unordered_map<std::string, std::unique_ptr<::BiomeJsonDocumentGlueResolvedBiomeData>>;
+
 void patchPacket(MinecraftPacketIds id, Packet& packet) {
     switch (id) {
     case MinecraftPacketIds::RemoveVolumeEntityPacket: {
@@ -151,11 +160,8 @@ void sendEmptyChunk(const NetworkIdentifier& netId, int chunkX, int chunkZ, bool
     ll::service::getLevel()->getPacketSender()->sendToClient(netId, levelChunkPacket, SubClientId::PrimaryClient);
 
     if (forceUpdate) {
-        NetworkBlockPosition pos{
-            BlockPos{chunkX << 4, 80, chunkZ << 4}
-        };
         UpdateBlockPacket blockPacket;
-        blockPacket.mPos         = pos;
+        blockPacket.mPos         = BlockPos{(float)(chunkX << 4), 80.f, (float)(chunkZ << 4)};
         blockPacket.mLayer       = 0;
         blockPacket.mUpdateFlags = 1;
         ll::service::getLevel()->getPacketSender()->sendToClient(netId, blockPacket, SubClientId::PrimaryClient);
@@ -249,13 +255,11 @@ LL_TYPE_INSTANCE_HOOK /*NOLINT*/ (
     Level,
     &Level::$initialize,
     bool,
-    std::string const&   levelName,
-    LevelSettings const& levelSettings,
-    Experiments const&   experiments,
-    std::string const*   levelId,
-    std::optional<std::reference_wrapper<
-        std::unordered_map<std::string, std::unique_ptr<::BiomeJsonDocumentGlue::ResolvedBiomeData>>>>
-        biomeIdToResolvedData
+    std::string const&                           levelName,
+    LevelSettings const&                         levelSettings,
+    Experiments const&                           experiments,
+    std::string const*                           levelId,
+    std::optional<std::reference_wrapper<BiomeDataMap>> biomeIdToResolvedData
 ) {
     mClientSideChunkGenEnabled = false;
     return origin(levelName, levelSettings, experiments, levelId, biomeIdToResolvedData);
@@ -266,10 +270,9 @@ LL_TYPE_INSTANCE_HOOK /*NOLINT*/ (
     HookPriority::Normal,
     PropertiesSettings,
     &PropertiesSettings::$ctor,
-    void*,
-    std::string const& filename
+    void*
 ) {
-    auto res                                                                 = origin(filename);
+    auto res = origin();
     reinterpret_cast<PropertiesSettings*>(res)->mClientSideGenerationEnabled = false;
     return res;
 }
@@ -280,26 +283,28 @@ LL_TYPE_INSTANCE_HOOK /*NOLINT*/ (
     StartGamePacket,
     &StartGamePacket::$ctor,
     void*,
-    ::LevelSettings const&          settings,
-    ::ActorUniqueID                 entityId,
-    ::ActorRuntimeID                runtimeId,
-    ::GameType                      entityGameType,
-    bool                            enableItemStackNetManager,
-    ::Vec3 const&                   pos,
-    ::Vec2 const&                   rot,
-    ::std::string const&            levelId,
-    ::std::string const&            levelName,
-    ::ContentIdentity const&        premiumTemplateContentIdentity,
-    ::std::string const&            multiplayerCorrelationId,
-    ::BlockDefinitionGroup const&   blockDefinitionGroup,
-    bool                            isTrial,
-    ::CompoundTag                   playerPropertyData,
-    ::PlayerMovementSettings const& movementSettings,
-    ::std::string const&            serverVersion,
-    ::mce::UUID const&              worldTemplateId,
-    uint64                          levelCurrentTime,
-    int                             enchantmentSeed,
-    uint64                          blockTypeRegistryChecksum
+    ::LevelSettings const&                                                     settings,
+    ::ActorUniqueID                                                            entityId,
+    ::ActorRuntimeID                                                           runtimeId,
+    ::GameType                                                                 entityGameType,
+    bool                                                                       enableItemStackNetManager,
+    ::Vec3 const&                                                              pos,
+    ::Vec2 const&                                                              rot,
+    ::std::string const&                                                       levelId,
+    ::std::string const&                                                       levelName,
+    ::ContentIdentity const&                                                   premiumTemplateContentIdentity,
+    ::std::string const&                                                       multiplayerCorrelationId,
+    ::BlockDefinitionGroup const&                                              blockDefinitionGroup,
+    bool                                                                       isTrial,
+    ::CompoundTag                                                              playerPropertyData,
+    ::PlayerMovementSettings const&                                            movementSettings,
+    ::std::string const&                                                       serverVersion,
+    ::mce::UUID const&                                                         worldTemplateId,
+    ::std::optional<::ServerConfiguration::ServerConfigurationJoinInfo> const& serverJoinInfo,
+    ::Social::Events::ServerTelemetryData const&                               serverTelemetryData,
+    uint64                                                                     levelCurrentTime,
+    int                                                                        enchantmentSeed,
+    uint64                                                                     blockTypeRegistryChecksum
 ) {
     if (settings.mSpawnSettings->dimension == VanillaDimensions::Nether()) {
         const_cast<ll::TypedStorage<sizeof(DimensionType), alignof(DimensionType), ::DimensionType>&>(
@@ -324,6 +329,8 @@ LL_TYPE_INSTANCE_HOOK /*NOLINT*/ (
         movementSettings,
         serverVersion,
         worldTemplateId,
+        serverJoinInfo,       // tambahkan ini
+        serverTelemetryData,  // tambahkan ini
         levelCurrentTime,
         enchantmentSeed,
         blockTypeRegistryChecksum

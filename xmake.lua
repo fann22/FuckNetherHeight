@@ -3,7 +3,19 @@ add_rules("mode.debug", "mode.release")
 add_repositories("groupmountain-repo https://github.com/GroupMountain/xmake-repo.git")
 add_repositories("liteldev-repo https://github.com/LiteLDev/xmake-repo.git")
 
-add_requires("levilamina", {configs = {target_type = "server"}})
+option("target_type")
+    set_default("server")
+    set_showmenu(true)
+    set_values("server", "client")
+option_end()
+
+local is_server = is_config("target_type", "server")
+
+if is_server then
+    add_requires("levilamina v26.10.11", {configs = {target_type = "server"}})
+else
+    add_requires("levilamina v26.10.11", {configs = {target_type = "client"}})
+end
 
 add_requires("levibuildscript 0.5.2")
 
