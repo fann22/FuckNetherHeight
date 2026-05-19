@@ -76,7 +76,7 @@ void patchPacket(MinecraftPacketIds id, Packet& packet) {
         return;
     }
 }
-LL_TYPE_INSTANCE_HOOK(
+LL_TYPE_INSTANCE_HOOK /*NOLINT*/ (
     PortalForcerCreatePortalHook,
     HookPriority::Normal,
     PortalForcer,
@@ -237,7 +237,7 @@ LL_TYPE_INSTANCE_HOOK(
     newShape.evaluate(targetPos, region);
 
     PortalRecord record;
-    record.mBaseBlockPos = newShape.mBottomLeft;
+    record.mBaseBlockPos = targetPos;
     record.mSpan         = (schar)newShape.mWidth;
     record.mXInc         = (schar)xInc;
     record.mZInc         = (schar)zInc;
