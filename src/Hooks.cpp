@@ -242,7 +242,8 @@ LL_TYPE_INSTANCE_HOOK(
     record.mXInc         = (schar)xInc;
     record.mZInc         = (schar)zInc;
 
-    auto& recordSet  = this->mPortalRecords[entity.getDimensionId()];
+    auto& map           = ll::memory::dAccess<std::unordered_map<DimensionType, std::unordered_set<PortalRecord>>>(this, offsetof(PortalForcer, mPortalRecords));
+    auto& recordSet     = map[entity.getDimensionId()];
     auto [it, inserted] = recordSet.emplace(record);
     return *it;
 }
