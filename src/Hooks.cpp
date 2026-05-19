@@ -55,6 +55,26 @@
 #include "mc/world/actor/Actor.h"
 #include "mc/world/level/dimension/Dimension.h"
 
+namespace std {
+template <>
+struct hash<PortalRecord> {
+    size_t operator()(PortalRecord const& r) const {
+        auto& pos = *reinterpret_cast<BlockPos const*>(&r.mBaseBlockPos);
+        return ll::hash_utils::HashCombiner{}
+            .add(pos.x).add(pos.y).add(pos.z)
+            .hash();
+    }
+};
+template <>
+struct equal_to<PortalRecord> {
+    bool operator()(PortalRecord const& a, PortalRecord const& b) const {
+        auto& pa = *reinterpret_cast<BlockPos const*>(&a.mBaseBlockPos);
+        auto& pb = *reinterpret_cast<BlockPos const*>(&b.mBaseBlockPos);
+        return pa.x == pb.x && pa.y == pb.y && pa.z == pb.z;
+    }
+};
+} // namespace std
+
 namespace {
 using BiomeDataMap = std::unordered_map<std::string, std::unique_ptr<::BiomeJsonDocumentGlueResolvedBiomeData>>;
 
@@ -236,13 +256,16 @@ LL_TYPE_INSTANCE_HOOK /*NOLINT*/ (
     PortalShape newShape;
     newShape.evaluate(targetPos, region);
 
-    static PortalRecord record;
+    PortalRecord record;
     record.mBaseBlockPos = targetPos;
     record.mSpan         = (schar)newShape.mWidth;
-    record.mXInc         = (schar)xInc + 74;
+    record.mXInc         = (schar)xInc;
     record.mZInc         = (schar)zInc;
 
-    return record;
+    auto& map            = *reinterpret_cast<std::unordered_map<DimensionType, std::unordered_set<PortalRecord>>*>(&this->mPortalRecords);
+    auto& recordSet      = map[entity.getDimensionId()];
+    auto [it, _]         = recordSet.emplace(record);
+    return *it;
 }
 LL_TYPE_INSTANCE_HOOK /*NOLINT*/ (
     LoopbackPacketSenderHook0,
