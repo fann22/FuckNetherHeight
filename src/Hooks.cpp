@@ -236,15 +236,13 @@ LL_TYPE_INSTANCE_HOOK /*NOLINT*/ (
     PortalShape newShape;
     newShape.evaluate(targetPos, region);
 
-    PortalRecord record;
+    static PortalRecord record;
     record.mBaseBlockPos = targetPos;
     record.mSpan         = (schar)newShape.mWidth;
-    record.mXInc         = (schar)xInc;
+    record.mXInc         = (schar)xInc + 74;
     record.mZInc         = (schar)zInc;
 
-    static PortalRecord sLastRecord;
-    sLastRecord = record;
-    return sLastRecord;
+    return record;
 }
 LL_TYPE_INSTANCE_HOOK /*NOLINT*/ (
     LoopbackPacketSenderHook0,
