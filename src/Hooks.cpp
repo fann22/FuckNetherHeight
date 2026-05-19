@@ -79,10 +79,13 @@ LL_TYPE_INSTANCE_HOOK /*NOLINT*/ (
     int            radius
 ) {
     ::PortalRecord const& record = origin(entity, radius);
-    auto& pos = const_cast<::BlockPos&>(record.mBaseBlockPos);
-    if (pos.y > 120) {
-        pos.y = std::clamp(pos.y, 70, 120);
-    }
+
+    BlockPos& pos = *reinterpret_cast<BlockPos*>(
+        const_cast<void*>(static_cast<const void*>(&record.mBaseBlockPos))
+    );
+
+    if (pos.y > 120) pos.y = 120;
+
     return record;
 }
 LL_TYPE_INSTANCE_HOOK /*NOLINT*/ (
