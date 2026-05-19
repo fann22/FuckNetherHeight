@@ -46,6 +46,7 @@
 #include "mc/world/actor/player/PlayerMovementSettings.h"
 #include "mc/platform/UUID.h"
 #include "mc/world/level/block/definition/BlockDefinitionGroup.h"
+#include "mc/world/level/PortalForcer.h"
 
 namespace {
 using BiomeDataMap = std::unordered_map<std::string, std::unique_ptr<::BiomeJsonDocumentGlueResolvedBiomeData>>;
@@ -67,6 +68,22 @@ void patchPacket(MinecraftPacketIds id, Packet& packet) {
     default:
         return;
     }
+}
+LL_TYPE_INSTANCE_HOOK /*NOLINT*/ (
+    PortalForcerCreatePortalHook,
+    HookPriority::Normal,
+    PortalForcer,
+    &PortalForcer::createPortal,
+    ::PortalRecord const&,
+    ::Actor const& entity,
+    int            radius
+) {
+    ::PortalRecord const& record = origin(entity, radius);
+    auto& pos = const_cast<::BlockPos&>(record.mBaseBlockPos);
+    if (pos.y > 120) {
+        pos.y = std::clamp(pos.y, 70, 120);
+    }
+    return record;
 }
 LL_TYPE_INSTANCE_HOOK /*NOLINT*/ (
     LoopbackPacketSenderHook0,
@@ -329,8 +346,8 @@ LL_TYPE_INSTANCE_HOOK /*NOLINT*/ (
         movementSettings,
         serverVersion,
         worldTemplateId,
-        serverJoinInfo,       // tambahkan ini
-        serverTelemetryData,  // tambahkan ini
+        serverJoinInfo,
+        serverTelemetryData,
         levelCurrentTime,
         enchantmentSeed,
         blockTypeRegistryChecksum
@@ -348,7 +365,8 @@ struct FuckNetherHeightHooks::Impl {
         SpawnParticleEffectPacketCtorHook,
         RequestPlayerChangeDimensionHook,
         StartGamePacketCtorHook,
-        LevelInitializeHook
+        LevelInitializeHook,
+        PortalForcerCreatePortalHook
 #ifdef LL_PLAT_S
         ,
         PropertiesSettingsCtorHook
