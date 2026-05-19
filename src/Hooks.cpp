@@ -46,8 +46,14 @@
 #include "mc/world/actor/player/PlayerMovementSettings.h"
 #include "mc/platform/UUID.h"
 #include "mc/world/level/block/definition/BlockDefinitionGroup.h"
+#include "mc/world/level/PortalForcer.h"
 #include "mc/world/level/PortalShape.h"
+#include "mc/world/level/PortalRecord.h"
+#include "mc/world/level/block/PortalAxis.h"
+#include "mc/world/level/block/Block.h"
 #include "mc/world/level/BlockSource.h"
+#include "mc/world/actor/Actor.h"
+#include "mc/world/level/dimension/Dimension.h"
 
 namespace {
 using BiomeDataMap = std::unordered_map<std::string, std::unique_ptr<::BiomeJsonDocumentGlueResolvedBiomeData>>;
@@ -70,20 +76,167 @@ void patchPacket(MinecraftPacketIds id, Packet& packet) {
         return;
     }
 }
-LL_TYPE_INSTANCE_HOOK /*NOLINT*/ (
-    PortalShapeEvaluateHook,
+LL_TYPE_INSTANCE_HOOK(
+    PortalForcerCreatePortalHook,
     HookPriority::Normal,
-    PortalShape,
-    &PortalShape::evaluate,
-    void,
-    ::BlockPos const& originalPosition,
-    ::BlockSource const& source
+    PortalForcer,
+    &PortalForcer::createPortal,
+    ::PortalRecord const&,
+    ::Actor const& entity,
+    int            radius
 ) {
-    BlockPos clampedPos = originalPosition;
-    if (source.getDimension().getDimensionId() == VanillaDimensions::Nether()) {
-        if (clampedPos.y > 118) clampedPos.y = 118;
+    if (entity.getDimensionId() != VanillaDimensions::Nether()) {
+        return origin(entity, radius);
     }
-    origin(clampedPos, source);
+
+    BlockSource& region  = entity.getDimensionBlockSource();
+    Vec3 const&  pos     = entity.getPosition();
+    int          dirOffs = Random::nextInt(&this->mRandom, 4);
+
+    BlockPos entityBlockPos{(int)pos.x, (int)pos.y, (int)pos.z};
+    BlockPos targetPos = entityBlockPos;
+
+    float closest  = -1.0f;
+    int   dirTarget = 0;
+
+    constexpr int PORTAL_MAX_Y = 118;
+    constexpr int PORTAL_MIN_Y = 70;
+
+    Vec3 distVec{};
+
+    for (int x = entityBlockPos.x - radius; x <= entityBlockPos.x + radius; x++) {
+        distVec.x = (float)x + 0.5f - pos.x;
+        for (int z = entityBlockPos.z - radius; z <= entityBlockPos.z + radius; z++) {
+            distVec.z = (float)z + 0.5f - pos.z;
+            for (int y = PORTAL_MAX_Y; y >= 0; y--) {
+                BlockPos checkPos{x, y, z};
+                Block const& block = region.getBlock(checkPos);
+                if (!block.isAir() && block.getTypeName() == "minecraft:portal") {
+                    float dist = distVec.x * distVec.x + distVec.z * distVec.z;
+                    if (closest < 0.0f || dist < closest) {
+                        closest   = dist;
+                        targetPos = checkPos;
+                        dirTarget = dirOffs;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    if (closest < 0.0f) {
+        for (int x = entityBlockPos.x - radius; x <= entityBlockPos.x + radius; x++) {
+            distVec.x = (float)x + 0.5f - pos.x;
+            for (int z = entityBlockPos.z - radius; z <= entityBlockPos.z + radius; z++) {
+                distVec.z = (float)z + 0.5f - pos.z;
+                for (int y = PORTAL_MAX_Y; y >= 0; y--) {
+                    BlockPos checkPos{x, y, z};
+
+                    Block const& floor  = region.getBlock(BlockPos{x, y - 1, z});
+                    Block const& space0 = region.getBlock(checkPos);
+                    Block const& space1 = region.getBlock(BlockPos{x, y + 1, z});
+                    Block const& space2 = region.getBlock(BlockPos{x, y + 2, z});
+                    if (!floor.isAir() && space0.isAir() && space1.isAir() && space2.isAir()) {
+                        float dist = distVec.x * distVec.x + distVec.z * distVec.z;
+                        if (closest < 0.0f || dist < closest) {
+                            closest   = dist;
+                            targetPos = checkPos;
+                            dirTarget = dirOffs;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    int xInc = dirTarget % 2;
+    int zInc = 1 - dirTarget % 2;
+    if (dirTarget % 4 >= 2) {
+        xInc = -xInc;
+        zInc = dirTarget % 2 - 1;
+    }
+
+    PortalAxis axis = PortalAxis::Z;
+    if (std::abs(xInc) == 1) axis = PortalAxis::X;
+
+    if (closest < 0.0f) {
+        targetPos.y = std::clamp(targetPos.y, PORTAL_MIN_Y, PORTAL_MAX_Y);
+
+        auto obsidian  = Block::tryGetFromRegistry("minecraft:obsidian");
+        auto air       = Block::tryGetFromRegistry("minecraft:air");
+        auto netherrack = Block::tryGetFromRegistry("minecraft:netherrack");
+
+        if (!obsidian || !air || !netherrack) return origin(entity, radius);
+
+        for (int b = -1; b <= 1; b++) {
+            for (int s = 1; s < 3; s++) {
+                for (int h = -1; h < 3; h++) {
+                    BlockPos cur{
+                        zInc * b + xInc * (s - 1) + targetPos.x,
+                        h + targetPos.y,
+                        zInc * (s - 1) + targetPos.z - xInc * b
+                    };
+                    if (h >= 0)
+                        region.setBlockAndRetainCompatibleBlockActor(cur, *air, 3);
+                    else
+                        region.setBlockAndRetainCompatibleBlockActor(cur, *obsidian, 3);
+                }
+            }
+        }
+
+        for (int l = 0; l < 5; l++) {
+            for (int s = 0; s < 4; s++) {
+                int tx = -2 * zInc + l * zInc + s * xInc + targetPos.x - xInc;
+                int tz = -2 * xInc + s * zInc + l * xInc + targetPos.z - zInc;
+                if ((l != 0 && l != 4) || (s != 0 && s != 3)) {
+                    Block const& floorBlock = region.getBlock(BlockPos{tx, targetPos.y - 1, tz});
+                    if (floorBlock.isAir()) {
+                        region.setBlockAndRetainCompatibleBlockActor(
+                            BlockPos{tx, targetPos.y - 1, tz}, *netherrack, 3
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    auto obsidian = Block::tryGetFromRegistry("minecraft:obsidian");
+    auto portal   = Block::tryGetFromRegistry("minecraft:portal");
+    if (!obsidian || !portal) return origin(entity, radius);
+
+    Block const& portalWithAxis = portal->getStateFromLegacyData(axis == PortalAxis::X ? 1 : 2);
+
+    for (int s = 0; s < 4; s++) {
+        for (int h = -1; h < 4; h++) {
+            BlockPos cur{
+                xInc * (s - 1) + targetPos.x,
+                h + targetPos.y,
+                zInc * (s - 1) + targetPos.z
+            };
+            bool isFrame = (s == 0 || s == 3 || h == -1 || h == 3);
+            if (isFrame)
+                region.setBlockAndRetainCompatibleBlockActor(cur, *obsidian, 2);
+            else
+                region.setBlockAndRetainCompatibleBlockActor(cur, portalWithAxis, 2);
+        }
+    }
+
+    for (int s = 0; s < 4; s++) {
+        for (int h = -1; h < 4; h++) {
+            BlockPos cur{
+                xInc * (s - 1) + targetPos.x,
+                h + targetPos.y,
+                zInc * (s - 1) + targetPos.z
+            };
+            region.updateNeighborsAt(cur);
+        }
+    }
+
+    PortalShape newShape;
+    newShape.evaluate(targetPos, region);
+
+    return this->addPortalRecord(entity.getDimensionId(), newShape);
 }
 LL_TYPE_INSTANCE_HOOK /*NOLINT*/ (
     LoopbackPacketSenderHook0,
@@ -366,7 +519,7 @@ struct FuckNetherHeightHooks::Impl {
         RequestPlayerChangeDimensionHook,
         StartGamePacketCtorHook,
         LevelInitializeHook,
-        PortalShapeEvaluateHook
+        PortalForcerCreatePortalHook
 #ifdef LL_PLAT_S
         ,
         PropertiesSettingsCtorHook
