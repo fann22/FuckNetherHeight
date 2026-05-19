@@ -46,7 +46,8 @@
 #include "mc/world/actor/player/PlayerMovementSettings.h"
 #include "mc/platform/UUID.h"
 #include "mc/world/level/block/definition/BlockDefinitionGroup.h"
-#include "mc/world/level/PortalForcer.h"
+#include "mc/world/level/PortalShape.h"
+#include "mc/world/level/BlockSource.h"
 
 namespace {
 using BiomeDataMap = std::unordered_map<std::string, std::unique_ptr<::BiomeJsonDocumentGlueResolvedBiomeData>>;
@@ -70,23 +71,19 @@ void patchPacket(MinecraftPacketIds id, Packet& packet) {
     }
 }
 LL_TYPE_INSTANCE_HOOK /*NOLINT*/ (
-    PortalForcerCreatePortalHook,
+    PortalShapeEvaluateHook,
     HookPriority::Normal,
-    PortalForcer,
-    &PortalForcer::createPortal,
-    ::PortalRecord const&,
-    ::Actor const& entity,
-    int            radius
+    PortalShape,
+    &PortalShape::evaluate,
+    void,
+    ::BlockPos const& originalPosition,
+    ::BlockSource const& source
 ) {
-    ::PortalRecord const& record = origin(entity, radius);
-
-    BlockPos& pos = *reinterpret_cast<BlockPos*>(
-        const_cast<void*>(static_cast<const void*>(&record.mBaseBlockPos))
-    );
-
-    if (pos.y > 120) pos.y = 120;
-
-    return record;
+    BlockPos clampedPos = originalPosition;
+    if (source.getDimension().getDimensionId() == VanillaDimensions::Nether()) {
+        if (clampedPos.y > 118) clampedPos.y = 118;
+    }
+    origin(clampedPos, source);
 }
 LL_TYPE_INSTANCE_HOOK /*NOLINT*/ (
     LoopbackPacketSenderHook0,
@@ -369,7 +366,7 @@ struct FuckNetherHeightHooks::Impl {
         RequestPlayerChangeDimensionHook,
         StartGamePacketCtorHook,
         LevelInitializeHook,
-        PortalForcerCreatePortalHook
+        PortalShapeEvaluateHook
 #ifdef LL_PLAT_S
         ,
         PropertiesSettingsCtorHook
