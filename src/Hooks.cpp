@@ -237,15 +237,14 @@ LL_TYPE_INSTANCE_HOOK(
     newShape.evaluate(targetPos, region);
 
     PortalRecord record;
-    record.mBaseBlockPos = targetPos;
+    record.mBaseBlockPos = newShape.mBottomLeft;
     record.mSpan         = (schar)newShape.mWidth;
     record.mXInc         = (schar)xInc;
     record.mZInc         = (schar)zInc;
 
-    auto& map           = ll::memory::dAccess<std::unordered_map<DimensionType, std::unordered_set<PortalRecord>>>(this, offsetof(PortalForcer, mPortalRecords));
-    auto& recordSet     = map[entity.getDimensionId()];
-    auto [it, inserted] = recordSet.emplace(record);
-    return *it;
+    static PortalRecord sLastRecord;
+    sLastRecord = record;
+    return sLastRecord;
 }
 LL_TYPE_INSTANCE_HOOK /*NOLINT*/ (
     LoopbackPacketSenderHook0,
