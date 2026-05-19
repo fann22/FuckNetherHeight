@@ -91,7 +91,7 @@ LL_TYPE_INSTANCE_HOOK(
 
     BlockSource& region  = entity.getDimensionBlockSource();
     Vec3 const&  pos     = entity.getPosition();
-    int          dirOffs = Random::nextInt(&this->mRandom, 4);
+    int          dirOffs = ll::memory::dAccess<Random>(&this->mRandom, 0).nextInt(4);
 
     BlockPos entityBlockPos{(int)pos.x, (int)pos.y, (int)pos.z};
     BlockPos targetPos = entityBlockPos;
@@ -236,7 +236,15 @@ LL_TYPE_INSTANCE_HOOK(
     PortalShape newShape;
     newShape.evaluate(targetPos, region);
 
-    return this->addPortalRecord(entity.getDimensionId(), newShape);
+    PortalRecord record;
+    record.mBaseBlockPos = targetPos;
+    record.mSpan         = (schar)newShape.mWidth;
+    record.mXInc         = (schar)xInc;
+    record.mZInc         = (schar)zInc;
+
+    auto& recordSet = this->mPortalRecords[dimType];
+    auto [it, _]    = recordSet.emplace(record);
+    return *it;
 }
 LL_TYPE_INSTANCE_HOOK /*NOLINT*/ (
     LoopbackPacketSenderHook0,
