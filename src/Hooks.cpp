@@ -242,8 +242,8 @@ LL_TYPE_INSTANCE_HOOK(
     record.mXInc         = (schar)xInc;
     record.mZInc         = (schar)zInc;
 
-    auto& recordSet = this->mPortalRecords[dimType];
-    auto [it, _]    = recordSet.emplace(record);
+    auto& recordSet  = this->mPortalRecords[entity.getDimensionId()];
+    auto [it, inserted] = recordSet.emplace(record);
     return *it;
 }
 LL_TYPE_INSTANCE_HOOK /*NOLINT*/ (
